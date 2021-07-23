@@ -1,0 +1,114 @@
+#!/bin/bash
+while [[ $# -ge 1 ]]; do
+    case $1 in
+        -d|--directory )
+            dir=$2
+	    if [ "$2" == "" ];then
+	    	echo "directory cant be empty!"
+		exit 8
+	    fi	
+            shift 2
+            ;;
+        * )
+            echo "usage: $0 -d dir"
+	    exit 8 
+            shift   
+            ;;
+    esac
+done
+
+if [ "${dir}" == "" ];then
+echo "directory cant be empty!"
+exit 8
+fi
+
+
+if [ ! -d ${dir} ]
+	then echo "${dir}目录不存在"
+	exit 8	
+fi
+
+
+cd ${dir}
+
+starttime=$(date +%s)
+
+declare -A tableNameTaskMapE2M
+tableNameTaskMapE2M["tb_cen_account_o_storeinven"]="TB_CEN_ACCOUNT_O_STOREINVEN_Normal_全量@TB_CEN_ACCOUNT_O_STOREINVEN_全量"
+tableNameTaskMapE2M["tb_cen_storenotavailableqty"]="TB_CEN_STORENOTAVAILABLEQTY_Normal_全量@TB_CEN_STORENOTAVAILABLEQTY_全量"
+tableNameTaskMapE2M["tb_gos_stock_stockpreemption"]="TB_GOS_STOCK_STOCKPREEMPTION_Normal_全量@TB_GOS_STOCK_STOCKPREEMPTION_全量"
+tableNameTaskMapE2M["tb_common_productreserves"]="TB_COMMON_PRODUCTRESERVES_Normal_全量@TB_COMMON_PRODUCTRESERVES_全量"
+tableNameTaskMapE2M["vw_common_prod"]="VW_COMMON_PROD_Normal_全量@VW_COMMON_PROD_全量"
+
+declare -A tableNameTaskMapE2V
+tableNameTaskMapE2V["vw_common_prod"]="VW_COMMON_PROD_VAL@VW_COMMON_PROD_VAL_全量"
+tableNameTaskMapE2V["tb_gos_stock_stockpreemption"]="TB_GOS_STOCK_STOCKPREEMPTION_VAL@TB_GOS_STOCK_STOCKPREEMPTION_VAL_全量"
+
+
+for file in *; do
+	array=(${file//#/ })
+    	if [ ${#array[*]} -eq 3 ];then
+		morv="${array[0]}"
+		tbname="${array[1]}"
+		taskname=""
+		if [ "${morv}" == "ERP库到中间库" ];then
+			taskname=${tableNameTaskMapE2M["${tbname}"]}
+		fi
+		if [ "${morv}" == "ERP库到本地化校验库" ];then
+			taskname=${tableNameTaskMapE2V["${tbname}"]}
+		fi
+		if [ "${taskname}" == "" ];then
+			continue
+		fi
+		desc="${array[2]}"
+		descarray=(${desc//./ })
+		moreDataLen=$(wc -l ${file}|awk '{print $1}')
+		if [ "${descarray[0]}" == "多余数据" ] && [ ${moreDataLen} != 0 ];then
+			# more data generate delete sql statements;
+			awk -v tbname="${tbname}" '{print "delete from "tbname" where pk="$1";";}' ${file} > ${morv}-${tbname}-多余数据清理脚本.sql
+			continue	
+		fi
+		defaultvalue="'-1'"
+		pks=`awk 'BEGIN{}{print $1",";}' ${file} `
+		pkArr=(${pks//,/ })
+		if [ ${#pkArr[*]} -lt 10000 ] && [ ${#pkArr[*]} -gt 0 ];then
+			pk0="${defaultvalue}"
+			let totalNum=0
+			totalLen=${#pkArr[*]}
+			for i in "${!pkArr[@]}";   
+			do   
+				pk="'${pkArr[$i]}'" 
+				if [ "${pk}" = "'pk'" ];then
+					continue
+				fi 
+				pk0="${pk0},${pk}"
+				b=$(( $i % 200 ))
+				if [ $b == 0 ] && [ $i != 0 ] ; then
+					totalNum=`expr ${totalNum} + 200`
+					wget --post-data "[\"${taskname}\"]" --header "Content-Type:application/json" http://10.161.0.196:32085/doFullTaskWithRangSql?sql=全量%20select%20*%20from%20执行Table%20where%20pk%20in%20\(${pk0}\) >> wget.rst 
+					sleep 5
+					pk0="${defaultvalue}"
+				fi
+			done 
+			remainPkArr=(${pk0//,/ })
+			if [ ${pk0} != "${defaultvalue}" ] ; then 
+				totalNum=`expr ${totalNum} + ${#remainPkArr[*]}`
+				wget --post-data "[\"${taskname}\"]" --header "Content-Type:application/json" http://10.161.0.196:32085/doFullTaskWithRangSql?sql=全量%20select%20*%20from%20执行Table%20where%20pk%20in%20\(${pk0}\) >> wget.rst 
+				sleep 5
+				pk0="${defaultvalue}"
+			fi
+			echo "${file}->${taskname}->${totalNum}"
+			
+		fi
+		
+
+		
+		
+	fi
+done
+
+
+
+endtime=$(date +%s)
+echo "fix data waste time:$(expr ${endtime} - ${starttime})"
+

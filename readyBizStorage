@@ -1,0 +1,68 @@
+#!/bin/bash
+while [[ $# -ge 1 ]]; do
+    case $1 in
+        -d|--directory )
+            dir=$2
+	    if [ "$2" == "" ];then
+	    	echo "directory cant be empty!"
+		exit 8
+	    fi	
+            shift 2
+            ;;
+        -b|--branch )
+            branch=$2
+	    if [ "$2" == "" ];then
+	    	echo "branch cant be empty!"
+		exit 8
+	    fi		
+            shift 2
+            ;;
+        * )
+            echo "usage: $0 -d dir -b FDW"
+	    exit 8 
+            shift   
+            ;;
+    esac
+done
+
+if [ "${dir}" == "" ];then
+echo "directory cant be empty!"
+exit 8
+fi
+if [ "${branch}" == "" ];then
+echo "branch cant be empty!"
+exit 8
+fi
+
+if [ ! -d ${dir} ]
+	then echo "${dir}目录not存在"
+	exit 8	
+fi
+
+
+
+starttime=$(date +%s)
+
+
+
+#b2b业务库配置
+b2bbizhost=xxx
+b2bbizuser=xxx
+b2bbizpwd=xxx
+b2bbizdb=xxx
+
+
+
+b2b5_="b2b5_"
+
+
+#export b2b5 storage
+merchandiseStorageTable="tb_merchandise_storage"
+exportB2bStorage="select branch_id,prod_no,storage_number,modify_date from ${merchandiseStorageTable} where branch_id = '${branch}'; "
+mysql -h${b2bbizhost} -u${b2bbizuser} -p${b2bbizpwd} ${b2bbizdb} -e"${exportB2bStorage}" > ${dir}/${b2b5_}${merchandiseStorageTable}.mid && sed -i "1d" ${dir}/${b2b5_}${merchandiseStorageTable}.mid && awk -F '\t' '{a="";for(i=1;i<=NF;i++){if(a==""){a=$i;}else{a=a","$i;} }print a;}' ${dir}/${b2b5_}${merchandiseStorageTable}.mid | sed "s/NULL//g" > ${dir}/${b2b5_}${merchandiseStorageTable} && rm ${dir}/${b2b5_}${merchandiseStorageTable}.mid 
+
+
+
+echo "数据整理完毕!"
+
+
