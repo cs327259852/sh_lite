@@ -43,13 +43,49 @@ fi
 
 starttime=$(date +%s)
 
+declare -A dbConfMap
+confFile=/home/peter/dev_project/sh_lite/db.conf
+# 设置IFS,将分隔符设置为换行符
+OLDIFS=$IFS
+IFS=$'\n'
+# 读取文件中的内容到数组中
+confArr=($(cat $confFile))
 
+# 恢复之前的设置
+IFS=$OLDIFS
+for i in "${!confArr[@]}";
+do
+{
+	val=${confArr[$i]}
+	kvpairArr=(${val//=/ })
+	dbConfMap["${kvpairArr[0]}"]="${kvpairArr[1]}"
+}
+done
+
+#中间数据库配置
+miduser=${dbConfMap["miduser"]}
+midhost=${dbConfMap["midhost"]}
+midpwd=${dbConfMap["midpwd"]}
+middb=${dbConfMap["middb"]}
 
 #b2b业务库配置
-b2bbizhost=xxx
-b2bbizuser=xxx
-b2bbizpwd=xxx
-b2bbizdb=xxx
+b2bbizhost=${dbConfMap["b2bbizhost"]}
+b2bbizuser=${dbConfMap["b2bbizuser"]}
+b2bbizpwd=${dbConfMap["b2bbizpwd"]}
+b2bbizdb=${dbConfMap["b2bbizdb"]}
+
+#ERP集中库配置
+erpcenterhost=${dbConfMap["erpcenterhost"]}
+erpcenterport=${dbConfMap["erpcenterport"]}
+erpcenteruser=${dbConfMap["erpcenteruser"]}
+erpcenterpwd=${dbConfMap["erpcenterpwd"]}
+erpcenterservice=${dbConfMap["erpcenterservice"]}
+
+#validate库配置
+validhost=${dbConfMap["validhost"]}
+validuser=${dbConfMap["validuser"]}
+validpwd=${dbConfMap["validpwd"]}
+validdb=${dbConfMap["validdb"]}
 
 
 
