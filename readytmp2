@@ -28,11 +28,13 @@ fi
 
 declare -A dbConfMap
 confFile=/home/peter/dev_project/sh_lite/db.conf
+tableFile=/home/peter/go/src/study/etl_validate/tmpconpare/tables.txt
 # 设置IFS,将分隔符设置为换行符
 OLDIFS=$IFS
 IFS=$'\n'
 # 读取文件中的内容到数组中
 confArr=($(cat $confFile))
+tables=($(cat $tableFile))
 
 # 恢复之前的设置
 IFS=$OLDIFS
@@ -46,10 +48,10 @@ do
 done
 
 #中间数据库配置
-miduser=${dbConfMap["miduser"]}
-midhost=${dbConfMap["midhost"]}
-midpwd=${dbConfMap["midpwd"]}
-middb=${dbConfMap["middb"]}
+miduser2=${dbConfMap["miduser2"]}
+midhost2=${dbConfMap["midhost2"]}
+midpwd2=${dbConfMap["midpwd2"]}
+middb2=${dbConfMap["middb2"]}
 
 #b2b业务库配置
 b2bbizhost=${dbConfMap["b2bbizhost"]}
@@ -71,12 +73,7 @@ validpwd=${dbConfMap["validpwd"]}
 validdb=${dbConfMap["validdb"]}
 
 
-tables=(tb_cen_account_o_storeinven tb_cen_storenotavailableqty tb_gos_stock_stockpreemption tb_common_productreserves vw_common_prod)
-fields=("pk, fk, lineid, lastmodifytime, createtime, branchid, prodid, invbalqty, invbalamt, storeid, deleteflag, note, version" 
-		"pk, createtime, lastmodifytime, version, branchid, storeid, prodid, notavailableqty, preassignedqty, runningno, note"
-		 "pk, fk, createtime, lastmodifytime,version, lineid, branchid, deleteflag, note, preemptionpreemption, prodid, lotno, quantity, rowguid, billid, whseid, storeid, billguid, opid, custid, custno, custname" "pk,lastmodifytime,branchid,deleteflag,prodid,minlimitstock,version,storeid" "pk,branchid,prodid,prodno,deleteflag,version")
 
-		 erpFieldsSql=("pk||','|| fk||','|| lineid||','|| to_char(lastmodifytime,'yyyy-mm-dd hh24:mi:ss')||','|| to_char(createtime,'yyyy-mm-dd hh24:mi:ss')||','|| branchid||','|| prodid||','|| invbalqty||','|| invbalamt||','|| storeid||','|| deleteflag||','|| note||','|| version" "pk||','||to_char(createtime,'yyyy-mm-dd hh24:mi:ss')||','|| to_char(lastmodifytime,'yyyy-mm-dd hh24:mi:ss')||','|| version||','|| branchid||','|| storeid||','||prodid||','||notavailableqty||','|| preassignedqty||','||runningno||','|| note" "pk||','||fk||','|| to_char(createtime,'yyyy-mm-dd hh24:mi:ss')||','|| to_char(lastmodifytime,'yyyy-mm-dd hh24:mi:ss')||','||version||','|| lineid||','|| branchid||','|| deleteflag||','||note||','||to_char(preemptionpreemption,'yyyy-mm-dd hh24:mi:ss')||','||prodid||','||lotno||','|| quantity||','|| rowguid||','||billid||','||whseid||','|| storeid||','||billguid||','||opid||','||custid||','|| custno||','|| custname" "pk||','||to_char(lastmodifytime,'yyyy-mm-dd hh24:mi:ss')||','||branchid||','||deleteflag||','||prodid||','||minlimitstock||','||version||','||storeid" "pk||','||branchid||','||prodid||','||prodno||','||deleteflag||','||version")
 
 mid_="mid_"
 valid_="valid_"
@@ -102,12 +99,14 @@ do
 done
 return -1
 }
-
 for file in *; do
 	array=(${file//#/ })
     	if [ ${#array[*]} -eq 3 ];then
 		morv="${array[0]}"
 		tablename="${array[1]}"
+		typename="${array[2]}"
+		typename=(${typename//./ })
+		typename="${typename[0]}"
 		getArrItemIdx "${tables[*]}" ${tablename}
 		idx=$?
 		if [ $idx -eq -1 ];then
@@ -115,7 +114,9 @@ for file in *; do
 		fi
 		if [ "${morv}" == "ERP库到中间库" ];then
 			defaultvalue="'-1'"
-			pks=`awk 'BEGIN{}{print $1",";}' ${file} `
+			pks=`awk 'BEGIN{}{print $1",";}' ${file}`
+			
+			echo "$file->$pks"
 			pkArr=(${pks//,/ })
 			
 			if [ ${#pkArr[*]} -lt 10000 ] && [ ${#pkArr[*]} -gt 0 ];then
@@ -131,13 +132,13 @@ for file in *; do
 					pk0="${pk0},${pk}"
 					b=$(( $i % 100 ))
 					if [ $b == 0 ] && [ $i != 0 ] ; then
-						field=${fields[$idx]}
+						field="pk,lastmodifytime"
 						where="where pk in (${pk0})"
 						mysqlSelectSql="select ${field} from ${tablename} ${where};"
-						#{
-						mysql -h${midhost} -u${miduser} -p${midpwd} ${middb} -e"${mysqlSelectSql}" >> second/${mid_}${tablename}.mid
-						#} &
-						field=${erpFieldsSql[$idx]}
+						{
+						mysql -h${midhost2} -u${miduser2} -p${midpwd2} ${middb2} -e"${mysqlSelectSql}" >> second/${mid_}${tablename}_$typename$i.mid
+						} &
+						field="pk||','|| to_char(lastmodifytime,'yyyy-mm-dd hh24:mi:ss')"
 						#warning:must be ends of ';',otherwise no results back, f**k oracle!!!!!!!
 						oracleSelectSql="select ${field} from ${tablename} ${where};"
 						#erp database
@@ -152,26 +153,27 @@ for file in *; do
 							set verify off
 							set newp none
 							set echo off
-							spool $(pwd)/second/${erp_}${tablename}_tmp 
+							spool $(pwd)/second/${erp_}${tablename}_$typename$i
 							${oracleSelectSql}
 							spool off
 !
-						}> /dev/null && cat second/${erp_}${tablename}_tmp.lst >> second/${erp_}${tablename}.lst && rm second/${erp_}${tablename}_tmp.lst
+						}> /dev/null  &
 						pk0="${defaultvalue}"
 					fi
 				done
 				if [ "$pk0" != "$defaultvalue" ] ; then
-						field=${fields[$idx]}
+						field="pk,lastmodifytime"
 						where="where pk in (${pk0})"
 						mysqlSelectSql="select ${field} from ${tablename} ${where};"
-						#{
-						mysql -h${midhost} -u${miduser} -p${midpwd} ${middb} -e"${mysqlSelectSql}" >> second/${mid_}${tablename}.mid
-						#} &
-						field=${erpFieldsSql[$idx]}
+						{
+						mysql -h${midhost2} -u${miduser2} -p${midpwd2} ${middb2} -e"${mysqlSelectSql}" >> second/${mid_}${tablename}_${typename}last.mid
+						} &
+						field="pk||','|| to_char(lastmodifytime,'yyyy-mm-dd hh24:mi:ss')"
 						#warning:must be ends of ';',otherwise no results back, f**k oracle!!!!!!!
 						oracleSelectSql="select ${field} from ${tablename} ${where};"
 						#erp database
 						#
+						echo ${oracleSelectSql}
 {
 						sqlplus ${erpcenteruser}/${erpcenterpwd}@${erpcenterhost}:${erpcenterport}/${erpcenterservice} <<!
 							set linesize 2000
@@ -182,11 +184,11 @@ for file in *; do
 							set verify off
 							set newp none
 							set echo off
-							spool $(pwd)/second/${erp_}${tablename}_tmp 
+							spool $(pwd)/second/${erp_}${tablename}_${typename}last 
 							${oracleSelectSql}
 							spool off
 !
-						}> /dev/null && cat second/${erp_}${tablename}_tmp.lst >> second/${erp_}${tablename}.lst && rm second/${erp_}${tablename}_tmp.lst
+						}> /dev/null &
 						pk0="${defaultvalue}"
 					fi 
 				
@@ -202,13 +204,13 @@ for file in *; do
 	fi
 done
 wait
+
 for i in "${!tables[@]}";   
 do
 {
 	tablename=${tables[$i]}
-	ls second/${mid_}${tablename}.mid 2>/dev/null && sed -i -e "1d" second/${mid_}${tablename}.mid && sed -i "/pk,/d" second/${mid_}${tablename}.mid  && awk -F '\t' '{a="";for(i=1;i<=NF;i++){if(a==""){a=$i;}else{a=a","$i;} }print a;}' second/${mid_}${tablename}.mid | sed "s/NULL//g" > second/${mid_}${tablename} && rm second/${mid_}${tablename}.mid &
-	ls second/${valid_}${tablename}.mid 2>/dev/null && sed -i -e "1d" second/${valid_}${tablename}.mid && sed -i "/pk,/d" second/${valid_}${tablename}.mid  && awk -F '\t' '{a="";for(i=1;i<=NF;i++){if(a==""){a=$i;}else{a=a","$i;} }print a;}' second/${valid_}${tablename}.mid | sed "s/NULL//g" > second/${valid_}${tablename} && rm second/${valid_}${tablename}.mid &
-	ls second/${erp_}${tablename}.lst 2>/dev/null && mv second/${erp_}${tablename}.lst second/${erp_}${tablename} && sed -i -e "/SQL>/d" -e"1d" -e"\$d" second/${erp_}${tablename} &
+	ls second/${mid_}${tablename}_*.mid 2>/dev/null && cat second/${mid_}${tablename}_*.mid >> second/${mid_}${tablename}.mid && sed -i -e "1d" second/${mid_}${tablename}.mid && sed -i "/pk,/d" second/${mid_}${tablename}.mid  && awk -F '\t' '{a="";for(i=1;i<=NF;i++){if(a==""){a=$i;}else{a=a","$i;} }print a;}' second/${mid_}${tablename}.mid | sed "s/NULL//g" > second/${mid_}${tablename} && sed -i -e "/pk/d" second/${mid_}${tablename}  && rm second/${mid_}${tablename}_*.mid && rm second/${mid_}${tablename}.mid
+	ls second/${erp_}${tablename}_*.lst 2>/dev/null && cat second/${erp_}${tablename}_*.lst >> second/${erp_}${tablename}.lst && rm second/${erp_}${tablename}_*.lst && mv second/${erp_}${tablename}.lst second/${erp_}${tablename} && sed -i -e "/SQL>/d" -e"1d" -e"\$d" second/${erp_}${tablename} 
 }
 done
 wait
