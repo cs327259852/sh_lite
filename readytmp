@@ -106,7 +106,7 @@ do
 	#mid database
 	{
 	mysql -h${midhost2} -u${miduser2} -p${midpwd2} ${middb2} -e"${mysqlSelectSql}" > ${mid_}${tablename}.mid 
-	} &
+	} 
 	
 	field="pk||','|| to_char(lastmodifytime,'yyyy-mm-dd hh24:mi:ss')"
 	#warning:must be ends of ';',otherwise no results back, f**k oracle!!!!!!!
@@ -126,7 +126,7 @@ do
 		${oracleSelectSql}
 		spool off
 !
-	}> /dev/null &
+	}> /dev/null 
 }
 done
 wait

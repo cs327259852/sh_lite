@@ -114,12 +114,10 @@ for file in *; do
 		fi
 		if [ "${morv}" == "ERP库到中间库" ];then
 			defaultvalue="'-1'"
-			pks=`awk 'BEGIN{}{print $1",";}' ${file}`
+			pks=`awk 'BEGIN{}{if(NR < 2000){print $1",";}}' ${file}`
 			
-			echo "$file->$pks"
 			pkArr=(${pks//,/ })
-			
-			if [ ${#pkArr[*]} -lt 10000 ] && [ ${#pkArr[*]} -gt 0 ];then
+			if [ ${#pkArr[*]} -lt 2000 ] && [ ${#pkArr[*]} -gt 0 ];then
 				pk0="${defaultvalue}"
 				let totalNum=0
 				totalLen=${#pkArr[*]}
@@ -130,14 +128,14 @@ for file in *; do
 						continue
 					fi 
 					pk0="${pk0},${pk}"
-					b=$(( $i % 100 ))
+					b=$(( $i % 150 ))
 					if [ $b == 0 ] && [ $i != 0 ] ; then
 						field="pk,lastmodifytime"
 						where="where pk in (${pk0})"
 						mysqlSelectSql="select ${field} from ${tablename} ${where};"
 						{
 						mysql -h${midhost2} -u${miduser2} -p${midpwd2} ${middb2} -e"${mysqlSelectSql}" >> second/${mid_}${tablename}_$typename$i.mid
-						} &
+						} 
 						field="pk||','|| to_char(lastmodifytime,'yyyy-mm-dd hh24:mi:ss')"
 						#warning:must be ends of ';',otherwise no results back, f**k oracle!!!!!!!
 						oracleSelectSql="select ${field} from ${tablename} ${where};"
@@ -157,7 +155,7 @@ for file in *; do
 							${oracleSelectSql}
 							spool off
 !
-						}> /dev/null  &
+						}> /dev/null  
 						pk0="${defaultvalue}"
 					fi
 				done
@@ -167,13 +165,12 @@ for file in *; do
 						mysqlSelectSql="select ${field} from ${tablename} ${where};"
 						{
 						mysql -h${midhost2} -u${miduser2} -p${midpwd2} ${middb2} -e"${mysqlSelectSql}" >> second/${mid_}${tablename}_${typename}last.mid
-						} &
+						} 
 						field="pk||','|| to_char(lastmodifytime,'yyyy-mm-dd hh24:mi:ss')"
 						#warning:must be ends of ';',otherwise no results back, f**k oracle!!!!!!!
 						oracleSelectSql="select ${field} from ${tablename} ${where};"
 						#erp database
 						#
-						echo ${oracleSelectSql}
 {
 						sqlplus ${erpcenteruser}/${erpcenterpwd}@${erpcenterhost}:${erpcenterport}/${erpcenterservice} <<!
 							set linesize 2000
@@ -188,7 +185,7 @@ for file in *; do
 							${oracleSelectSql}
 							spool off
 !
-						}> /dev/null &
+						}> /dev/null 
 						pk0="${defaultvalue}"
 					fi 
 				
