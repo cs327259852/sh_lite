@@ -1,0 +1,150 @@
+#!/bin/bash
+while [[ $# -ge 1 ]]; do
+    case $1 in
+        -d|--directory )
+            dir=$2
+	    if [ "$2" == "" ];then
+	    	echo "directory cant be empty!"
+		exit 8
+	    fi	
+            shift 2
+            ;;
+        -b|--branch )
+            branch=$2
+	    if [ "$2" == "" ];then
+	    	echo "branch cant be empty!"
+		exit 8
+	    fi		
+            shift 2
+            ;;
+        * )
+            echo "usage: $0 -d dir -b FDW"
+	    exit 8 
+            shift   
+            ;;
+    esac
+done
+
+if [ "${dir}" == "" ];then
+echo "directory cant be empty!"
+exit 8
+fi
+if [ "${branch}" == "" ];then
+echo "branch cant be empty!"
+exit 8
+fi
+
+if [ -d ${dir} ]
+	then echo "${dir}目录已存在"
+	exit 8	
+fi
+
+
+mkdir -p ${dir}
+cd ${dir}
+
+starttime=$(date +%s)
+
+declare -A dbConfMap
+confFile=/home/peter/dev_project/sh_lite/db.conf
+tableFile=/home/peter/go/src/study/etl_validate/tmpconpare/tables.txt
+# 设置IFS,将分隔符设置为换行符
+OLDIFS=$IFS
+IFS=$'\n'
+# 读取文件中的内容到数组中
+confArr=($(cat $confFile))
+tables=($(cat $tableFile))
+# 恢复之前的设置
+IFS=$OLDIFS
+for i in "${!confArr[@]}";
+do
+{
+	val=${confArr[$i]}
+	kvpairArr=(${val//=/ })
+	dbConfMap["${kvpairArr[0]}"]="${kvpairArr[1]}"
+}
+done
+
+#王燕中间数据库配置
+oggmiduser=${dbConfMap["oggmiduser"]}
+oggmidhost=${dbConfMap["oggmidhost"]}
+oggmidpwd=${dbConfMap["oggmidpwd"]}
+oggmidservice=${dbConfMap["oggmidservice"]}
+
+#b2b业务库配置
+b2bbizhost=${dbConfMap["b2bbizhost"]}
+b2bbizuser=${dbConfMap["b2bbizuser"]}
+b2bbizpwd=${dbConfMap["b2bbizpwd"]}
+b2bbizdb=${dbConfMap["b2bbizdb"]}
+
+#ERP集中库配置
+erpcenterhost=${dbConfMap["erpcenterhost"]}
+erpcenterport=${dbConfMap["erpcenterport"]}
+erpcenteruser=${dbConfMap["erpcenteruser"]}
+erpcenterpwd=${dbConfMap["erpcenterpwd"]}
+erpcenterservice=${dbConfMap["erpcenterservice"]}
+
+#validate库配置
+validhost=${dbConfMap["validhost"]}
+validuser=${dbConfMap["validuser"]}
+validpwd=${dbConfMap["validpwd"]}
+validdb=${dbConfMap["validdb"]}
+
+mid_="mid_"
+valid_="valid_"
+erp_="erp_"
+b2b5_="b2b5_"
+
+where=""
+for i in "${!tables[@]}";   
+do
+{
+	tablename=${tables[${i}]}
+	field="pk||','|| to_char(lastmodifytime,'yyyy-mm-dd hh24:mi:ss') as v,rownum as rn"
+	#warning:must be ends of ';',otherwise no results back, f**k oracle!!!!!!!
+	# and to_char(lastmodifytime,'yyyy-mm-dd hh24:mi:ss') >= '2021-05-01 00:00:00';
+	oracleSelectSql="select lastmodifytime from ${tablename} where rownum < 2;"
+	#erp database
+	#echo "==========================="
+	#echo ${erpcenteruser}/${erpcenterpwd}@${erpcenterhost}:${erpcenterport}/${erpcenterservice}
+	#{
+	#sqlplus ${erpcenteruser}/${erpcenterpwd}@${erpcenterhost}:${erpcenterport}/${erpcenterservice} <<!
+	#	set linesize 2000
+	#	set colsep ''
+	#	set heading off
+	#	set feedback off
+	#	set pagesize 0
+	#	set verify off
+	#	set newp none
+	#	set echo off
+	#	spool $(pwd)/${erp_}${tablename}
+	#	${oracleSelectSql}
+	#	spool off
+#!
+#	} &
+	#echo "++++++++++++++++++++++++++++++++++++"
+	echo ${oggmiduser}/${oggmidpwd}@${oggmidhost}:${erpcenterport}/${oggmidservice}
+	{
+	sqlplus ${oggmiduser}/${oggmidpwd}@${oggmidhost}:${erpcenterport}/${oggmidservice} <<!
+		set linesize 2000
+		set colsep ''
+		set heading off
+		set feedback off
+		set pagesize 0
+		set verify off
+		set newp none
+		set echo off
+		spool $(pwd)/${mid_}${tablename}
+		${oracleSelectSql}
+		spool off	
+!
+	} 
+
+}
+done
+wait
+echo "数据导出完毕"
+
+
+
+

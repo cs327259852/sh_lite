@@ -1,4 +1,6 @@
 #!/bin/bash
+thread=30
+fifofile="/tmp/$$.fifo"
 while [[ $# -ge 1 ]]; do
     case $1 in
         -d|--directory )
@@ -9,6 +11,38 @@ while [[ $# -ge 1 ]]; do
 	    fi	
             shift 2
             ;;
+    	-t|--table )
+	    tablefile=$2
+    	    if [ "$2" == "" ];then
+	    	echo "tablefile cant be empty!"
+    		exit 8
+	    fi
+	    shift 2
+	    ;;
+    	-c|--configfile )
+	    configfile=$2
+    	    if [ "$2" == "" ];then
+	    	echo "configfile cant be empty!"
+    		exit 8
+	    fi
+	    shift 2
+	    ;;		 
+    	-start|--startdate )
+	    startdate=$2
+    	    if [ "$2" == "" ];then
+	    	echo "startdate cant be empty!"
+    		exit 8
+	    fi
+	    shift 2
+	    ;;	
+    	-end|--enddate )
+	    enddate=$2
+    	    if [ "$2" == "" ];then
+	    	echo "enddate cant be empty!"
+    		exit 8
+	    fi
+	    shift 2
+	    ;;	   
         -b|--branch )
             branch=$2
 	    if [ "$2" == "" ];then
@@ -18,7 +52,7 @@ while [[ $# -ge 1 ]]; do
             shift 2
             ;;
         * )
-            echo "usage: $0 -d dir -b FDW"
+            echo "usage: $0 -d dir -b FDW -c db.config -t tables.txt -start 20200101 -end 20210201"
 	    exit 8 
             shift   
             ;;
@@ -33,21 +67,14 @@ if [ "${branch}" == "" ];then
 echo "branch cant be empty!"
 exit 8
 fi
-
 if [ -d ${dir} ]
 	then echo "${dir}目录已存在"
 	exit 8	
 fi
 
 
-mkdir -p ${dir}
-cd ${dir}
-
-starttime=$(date +%s)
-
-declare -A dbConfMap
-confFile=/home/peter/dev_project/sh_lite/db.conf
-tableFile=/home/peter/go/src/study/etl_validate/tmpconpare/tables.txt
+confFile=${configfile}
+tableFile=${tablefile}
 # 设置IFS,将分隔符设置为换行符
 OLDIFS=$IFS
 IFS=$'\n'
@@ -56,6 +83,13 @@ confArr=($(cat $confFile))
 tables=($(cat $tableFile))
 # 恢复之前的设置
 IFS=$OLDIFS
+mkdir -p ${dir}
+cd ${dir}
+
+starttime=$(date +%s)
+
+declare -A dbConfMap
+
 for i in "${!confArr[@]}";
 do
 {
@@ -66,10 +100,10 @@ do
 done
 
 #王燕中间数据库配置
-miduser2=${dbConfMap["miduser2"]}
-midhost2=${dbConfMap["midhost2"]}
-midpwd2=${dbConfMap["midpwd2"]}
-middb2=${dbConfMap["middb2"]}
+oggmiduser=${dbConfMap["oggmiduser"]}
+oggmidhost=${dbConfMap["oggmidhost"]}
+oggmidpwd=${dbConfMap["oggmidpwd"]}
+oggmidservice=${dbConfMap["oggmidservice"]}
 
 #b2b业务库配置
 b2bbizhost=${dbConfMap["b2bbizhost"]}
@@ -95,56 +129,73 @@ valid_="valid_"
 erp_="erp_"
 b2b5_="b2b5_"
 
-where="where branchid='${branch}' "
-for i in "${!tables[@]}";   
-do
-{
-	tablename=${tables[$i]}
-	field="pk,lastmodifytime"
-
-	mysqlSelectSql="select ${field} from ${tablename} ${where} and lastmodifytime >= '2021-05-01 00:00:00';"
-	#mid database
-	{
-	mysql -h${midhost2} -u${miduser2} -p${midpwd2} ${middb2} -e"${mysqlSelectSql}" > ${mid_}${tablename}.mid 
-	} 
+function pinger(){
 	
-	field="pk||','|| to_char(lastmodifytime,'yyyy-mm-dd hh24:mi:ss')"
-	#warning:must be ends of ';',otherwise no results back, f**k oracle!!!!!!!
-	oracleSelectSql="select ${field} from ${tablename} ${where} and to_char(lastmodifytime,'yyyy-mm-dd hh24:mi:ss') >= '2021-05-01 00:00:00';"
-	#erp database
+		mkfifo $fifofile
+		exec 4<>${fifofile}
+		rm -rf ${fifofile}
+		for i in `seq $thread`
+		do
+			echo >&4
+		done
+	
+
+	where=" where branchid='${branch}'"
+	for i in "${!tables[@]}";   
+	do
+	read -u 4
 	{
-	sqlplus ${erpcenteruser}/${erpcenterpwd}@${erpcenterhost}:${erpcenterport}/${erpcenterservice} <<!
-		set linesize 2000
-		set colsep ''
-		set heading off
-		set feedback off
-		set pagesize 0
-		set verify off
-		set newp none
-		set echo off
-		spool $(pwd)/${erp_}${tablename}
-		${oracleSelectSql}
-		spool off
+		tablename=${tables[${i}]}
+
+		tablename=${tables[${i}]}
+		field="pk||','|| to_char(lastmodifytime,'yymmddhh24miss')"
+		#warning:must be ends of ';',otherwise no results back, f**k oracle!!!!!!!
+		# to_char(lastmodifytime, 'yyyy-mm-dd hh24:mi:ss') < '2021-08-13 14:00:00' and to_char(lastmodifytime, 'yyyy-mm-dd hh24:mi:ss') > '2021-07-01 00:00:00' 
+		oracleSelectSql="select ${field} from ${tablename} where to_char(lastmodifytime, 'yyyymmdd hh24:mi:ss') < '${enddate} 00:00:00' and to_char(lastmodifytime, 'yyyymmdd hh24:mi:ss') >= '${startdate} 00:00:00';"
+		#erp database
+		{
+		sqlplus ${erpcenteruser}/${erpcenterpwd}@${erpcenterhost}:${erpcenterport}/${erpcenterservice} <<!
+			set linesize 2000
+			set colsep ''
+			set heading off
+			set feedback off
+			set pagesize 0
+			set verify off
+			set newp none
+			set echo off
+			spool $(pwd)/${erp_}${tablename}
+			${oracleSelectSql}
+			spool off
 !
-	}> /dev/null 
+		} 1>/dev/null &
+		{
+		sqlplus ${oggmiduser}/${oggmidpwd}@${oggmidhost}:${erpcenterport}/${oggmidservice} <<!
+			set linesize 2000
+			set colsep ''
+			set heading off
+			set feedback off
+			set pagesize 0
+			set verify off
+			set newp none
+			set echo off
+			spool $(pwd)/${mid_}${tablename}
+			${oracleSelectSql}
+			spool off	
+!
+		} 1>/dev/null &
+		wait
+		mv ${mid_}${tablename}.lst ${mid_}${tablename} && sed -i -e"1d" -e"\$d" ${mid_}${tablename} 
+		mv ${erp_}${tablename}.lst ${erp_}${tablename} && sed -i -e"1d" -e"\$d" ${erp_}${tablename} 
+		wc -l ${mid_}${tablename} ${erp_}${tablename} >> snapshot.txt
+		echo "${tablename}" > ${tablename}.txt
+		compareTmp -d ./ -t $(pwd)/${tablename}.txt && rm ${mid_}${tablename} ${erp_}${tablename} ${tablename}.txt
+		echo >&4
+	}&
+	done
+	wait
+	exec 4>&-
 }
-done
-wait
-echo "数据导出完毕,开始整理.."
 
+pinger
 endtime=$(date +%s)
-echo "export data waste time:$(expr ${endtime} - ${starttime})"
-
-for i in "${!tables[@]}";   
-do
-{
-	tablename=${tables[$i]}
-	ls ${mid_}${tablename}.mid && sed -i "1d" ${mid_}${tablename}.mid && awk -F '\t' '{a="";for(i=1;i<=NF;i++){if(a==""){a=$i;}else{a=a","$i;} }print a;}' ${mid_}${tablename}.mid | sed "s/NULL//g" > ${mid_}${tablename} && rm ${mid_}${tablename}.mid 
-	ls ${erp_}${tablename}.lst && mv ${erp_}${tablename}.lst ${erp_}${tablename} && sed -i -e"1d" -e"\$d" ${erp_}${tablename} 
-}
-done
-
-wait
-echo "数据整理完毕!"
-
-
+echo "waste time:$(expr ${endtime} - ${starttime})"

@@ -1,0 +1,117 @@
+#!/bin/bash
+while [[ $# -ge 1 ]]; do
+    case $1 in
+        -d|--directory )
+            dir=$2
+	    if [ "$2" == "" ];then
+	    	echo "directory cant be empty!"
+		exit 8
+	    fi	
+            shift 2
+            ;;
+        -b|--branch )
+            branch=$2
+	    if [ "$2" == "" ];then
+	    	echo "branch cant be empty!"
+		exit 8
+	    fi		
+            shift 2
+            ;;
+        * )
+            echo "usage: $0 -d dir -b FDW"
+	    exit 8 
+            shift   
+            ;;
+    esac
+done
+
+if [ "${dir}" == "" ];then
+echo "directory cant be empty!"
+exit 8
+fi
+if [ "${branch}" == "" ];then
+echo "branch cant be empty!"
+exit 8
+fi
+
+if [ -d ${dir} ]
+	then echo "${dir}目录已存在"
+	exit 8	
+fi
+
+
+mkdir -p ${dir}
+cd ${dir}
+
+starttime=$(date +%s)
+
+declare -A dbConfMap
+confFile=db.conf
+tableFile=tables.txt
+# 设置IFS,将分隔符设置为换行符
+OLDIFS=$IFS
+IFS=$'\n'
+# 读取文件中的内容到数组中
+confArr=($(cat $confFile))
+tables=($(cat $tableFile))
+# 恢复之前的设置
+IFS=$OLDIFS
+for i in "${!confArr[@]}";
+do
+{
+	val=${confArr[$i]}
+	kvpairArr=(${val//=/ })
+	dbConfMap["${kvpairArr[0]}"]="${kvpairArr[1]}"
+}
+done
+
+#王燕中间数据库配置
+oggmiduser=${dbConfMap["oggmiduser"]}
+oggmidhost=${dbConfMap["oggmidhost"]}
+oggmidpwd=${dbConfMap["oggmidpwd"]}
+oggmidservice=${dbConfMap["oggmidservice"]}
+
+
+mid_="mid_"
+valid_="valid_"
+erp_="erp_"
+b2b5_="b2b5_"
+
+where=""
+for i in "${!tables[@]}";   
+do
+{
+	tablename=${tables[${i}]}
+	field="pk||','|| to_char(lastmodifytime,'yyyy-mm-dd hh24:mi:ss')"
+	#warning:must be ends of ';',otherwise no results back, f**k oracle!!!!!!!
+	# and to_char(lastmodifytime,'yyyy-mm-dd hh24:mi:ss') >= '2021-05-01 00:00:00';
+	oracleSelectSql="select ${field} from (select pk, LASTMODIFYTIME, rownum as rn from ${tablename} where to_char(lastmodifytime, 'yyyy-mm-dd hh24:mi:ss') < '2021-08-13 14:00:00' and to_char(lastmodifytime, 'yyyy-mm-dd hh24:mi:ss') > '2021-07-01 00:00:00' order by pk desc) where rn < 500000;"
+	#erp database
+	#echo "++++++++++++++++++++++++++++++++++++"
+	#echo ${oggmiduser}/${oggmidpwd}@${oggmidhost}:${erpcenterport}/${oggmidservice}
+	{
+	sqlplus ${oggmiduser}/${oggmidpwd}@${oggmidhost}:${erpcenterport}/${oggmidservice} <<!
+		set linesize 2000
+		set colsep ''
+		set heading off
+		set feedback off
+		set pagesize 0
+		set verify off
+		set newp none
+		set echo off
+		spool $(pwd)/${mid_}${tablename}
+		${oracleSelectSql}
+		spool off	
+!
+	}
+	mv ${mid_}${tablename}.lst ${mid_}${tablename} && sed -i -e"1d" -e"\$d" ${mid_}${tablename} 
+}&
+done
+wait
+echo "数据导出完毕"
+
+endtime=$(date +%s)
+echo "export data waste time:$(expr ${endtime} - ${starttime})"
+
+
+
